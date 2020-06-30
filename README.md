@@ -1,1 +1,3 @@
-# Advanced Object Oriented Programming In R\nNotes from the book by Thomas Mailund
+# Advanced Object Oriented Programming In R
+
+Notes from the book by Thomas Mailund
