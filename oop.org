@@ -1,2 +1,402 @@
 * Advanced Object-Oriented Programming in R
 
+** Chapter 1 | Classes and Generic Functions 
+
+In R, data is immutable, so you don't write code where you change the state of an object. Instead you work with objects as values, and operations on objects create new objects when you need a new "state". 
+
+*** Generic Functions 
+
+The term generic functions refers to functions that can be used on more than one data type. Since R is dynamically typed, this means that there is no check of type consistency before you run your programs. Type checking is really only a question of whether you can manipulate data in the way that your functions attempt to. This is also called "duck typing". Generic functions are also known as polymorphic functions. 
+
+If we consider something, say a stack, by the operations defined on it, it is an abstract data type: 
+
+- get the top element
+- pop the first element off a stack
+- push a new element to the top of a stack
+- create an empty stack
+- check if a stack is empty 
+
+These operations are what a stack "is", but we can implement a stack in many different ways. To implement a stack, we need a concrete implementation. 
+
+In general, in statically typed function languages you would define a signature for a stack - the functions and their type for the five operations - while in an object-oriented language you would define an abstract superclass. 
+
+In R we would define the five operations as generic functions without any implementation, with the exception of creating an empty stack which must have a concrete implementation. Defining a generic function is done using the UseMethod function 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+top <- function(stack) UseMethod("top")
+pop <- function(stack) UseMethod("pop")
+push <- function(stack, element) UseMethod("push")
+is_empty <- function(stack) UseMethod("is_empty")
+#+END_SRC
+
+UseMethod does a dispatch to different concrete implementations of functions in the S3 oop syste. When it is called, it will look for an implementation of a function and call it with the parameters that the generic function was called with. 
+
+When defining generic methods, we can also specify a default function as well. These are called when UseMethod can not find a concrete implementation. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+top.default <- function(stack) .NotYetImplemented()
+pop.default <- function(stack) .NotYetImplemented()
+push.default <- function(stack, element) .NotYetImplemented()
+is_empty.default <- function(stack) .NotYetImplemented()
+#+END_SRC
+
+*** Classes 
+
+To make concrete implementations of abstract data types, we need to use classes. In the S3 system, you create a class, and assign a class to an object, just by setting an attribute on the object. The name of the class is all that defines it, so there is no real type checking involved. 
+
+We can make a concrete implementation of stack using a vector. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+empty_vector_stack <- function() {
+    stack <- vector("numeric")
+    class(stack) <- "vector_stack"
+    stack
+}
+
+(stack <- empty_vector_stack())
+attributes(stack)
+class(stack)
+
+# implement the operations for vector stack
+top.vector_stack <- function(stack) stack[1]
+
+pop.vector_stack <- function(stack) {
+    new_stack <- stack[-1]
+    cat("Popping stack value: ", stack[1], "\nNew stack: ", new_stack, "\n")
+    class(new_stack) <- "vector_stack"
+    new_stack
+}
+
+push.vector_stack <- function(element, stack) {
+    new_stack <- c(element, stack)
+    class(new_stack) <- "vector_stack"
+    new_stack
+}
+
+is_empty.vector_stack <- function(stack) length(stack) == 0
+#+END_SRC
+
+The names of functions are composed of two parts: before the period "." we have names of the generic functions that define a stack, and after the period we have the class name. This name format has semantic meaning; it is how generic functions figure out which concrete functions should be called based on the data provided to them. 
+
+When the generic functions call UseMethod, this function will check if the first value with which the generic function was called has an associated class. If so, it will get the name of that class and see if it can find a function with the name of the generic function (the name param given to UseMethod, not necessarily the name of the function that calls UseMethod) before a period and the name of the class after a period. If so, it calls that function, otherwise it calls the .default if it exists. 
+
+This lookup mechanism gives semantic meaning to function names, and you shouldn't use periods in function names unless you want R to interpret them this way. 
+
+In some of our functions above, we explicitly set the class of the concatenated new vector. This way, we make sure that we return a stack. By explicitly setting the class, we make sure that the function returns a stack that we can use with the generic functions again. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# test out our concrete implementation 
+library(magrittr)
+
+(stack %<>%
+    push(1) %>% 
+    push(2) %>%
+    push(3) %>%
+    push(4) %>%
+    push(5))
+
+while (!is_empty(stack)) stack <- pop(stack)
+#+END_SRC
+
+We can avoid having to set the class attribute explicitly whenever we update it (whenever we return a new value) by wrapping the class creation code in another function. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+make_vector_stack <- function(elements) {
+    structure(elements, class = "vector_stack")
+}
+
+empty_vector_stack <- function() {
+    make_vector_stack(vector("numeric"))
+}
+
+top.vector_stack <- function(stack) stack[1]
+
+pop.vector_stack <- function(stack) {
+    new_stack <- make_vector_stack(stack[-1])
+    cat("Popping stack value: ", stack[1], "\nNew stack: ", new_stack, "\n")
+    new_stack
+}
+
+push.vector_stack <- function(stack, element) {
+    new_stack <- make_vector_stack(c(element, stack))
+    cat("Pushing stack value: ", element, "\nNew stack: ", new_stack, "\n")
+    new_stack
+}
+
+is_empty.vector_stack <- function(stack) length(stack) == 0
+#+END_SRC
+
+We are still setting the class attribute, we are just doing so implicitly by translating a vector into a stack using make_vector_stack. That function uses the structure function to set the class attribute, but otherwise just represents the stack as a vector just like before. 
+
+*** Polymorphism in Action 
+
+The point of having generic functions is that we can have different implementations of the abstract operations. 
+
+Using the vector implementation of a stack is problematic because each time we return a modified stack if creates a new vector, copying all of the elements over. This leads to a linear time complexity. Using a linked list, we can make them constant time operations. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+make_list_node <- function(head, tail) {
+    list(head = head,
+         tail = tail)
+}
+
+make_list_stack <- function(elements) {
+    structure(list(elements = elements),
+              class = "list_stack")
+}
+
+empty_list_stack <- function() make_list_stack(NULL)
+
+top.list_stack <- function(stack) stack$elements$head
+
+pop.list_stack <- function(stack) {
+    cat(paste0("Popping stack value: ", stack$elements$head, "\n"))
+    make_list_stack(stack$elements$tail)
+}
+
+push.list_stack <- function(stack, element) {
+    cat(paste0("Pushing stack value: ", element, "\n"))
+    make_list_stack(make_list_node(element, stack$elements))
+}
+
+is_empty.list_stack <- function(stack) is.null(stack$elements)
+#+END_SRC 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+(empty_list_stack() %>%
+    push(1) %>%
+    push(2) %>%
+    push(3) -> stack)
+#+END_SRC
+
+We now have two stack implementations. The point of having generic functions is that it doesn't matter which implementation we use, as long as it is only accessing the stack through the generic interface. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+stack_reverse <- function(empty, elements) {
+    stack <- empty
+    
+    for (element in elements) stack <- push(stack, element)
+
+    result <- vector(class(top(stack)),
+                     length(elements))
+
+    for (i in seq_along(result)) {
+        result[i] <- top(stack)
+        stack <- pop(stack)
+    }    
+
+    result
+}
+
+stack_reverse(empty_vector_stack(), 1:5)
+stack_reverse(empty_list_stack(), 1:5)
+#+END_SRC
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# benchmarking
+library(microbenchmark)
+
+microbenchmark(stack_reverse(empty_vector_stack(), 1:10000),
+               stack_reverse(empty_list_stack(), 1:10000))
+#+END_SRC
+
+*** Designing Interfaces 
+
+Any function that manipulates data only through generic functions is also polymorphic. To get the most out of polymorphism, you want to design your functions to be as polymorphic as possible: 
+
+1. Don't refer to concrete implementations unless you really have to 
+2. Any time you do refer to implementation details of a concrete type, do so through a generic function 
+
+The reversal function is polymorphic because it doesn't refer to any concrete implementation. The choice of which concrete data structure is determined by the parameter, and the operations it performs on the stack all go through generic functions. 
+
+More often, you will want to access the details of a concrete implementation. Suppose we wish to pop elements until we see a specific one, but only if that element is on the stack. If we are used to the vector representation, we might write: 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+pop_until <- function(stack, element) {
+    if (element %in% stack) {
+        while (top(stack) != element) stack <- pop(stack)
+    }
+    stack
+}
+
+vector_stack <- empty_vector_stack() %>%
+    push(1) %>%
+    push(2) %>%
+    push(3) %T>% print  
+
+pop_until(vector_stack, 1)
+
+pop_until(vector_stack, 5)
+
+pop_until(vector_stack, 2)
+#+END_SRC
+
+This function would not work in a list, as %in% does not support lists. It will always just return false 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+list_stack <- empty_list_stack() %>%
+    push(1) %>%
+    push(2) %>%
+    push(3)
+
+pop_until(list_stack, 1)
+#+END_SRC
+
+If you write an algorithm that operates on a polymorphic object, stick to the interface it has, if at all possible. For the pop_until function, we can implement it using the stack interface. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+pop_until <- function(stack, element) {
+    s <- stack
+    while (!is_empty(s) && top(s) != element) s <- pop(s)
+    if (is_empty(s)) stack else s
+}
+#+END_SRC
+
+If you can not achieve what you need using the interface, you should instead extend it. You can always write new generic functions that work on a class. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+contains <- function(stack, element) UseMethod("contains")
+
+contains.default <- function(stack, element) .NotYetImplemented()
+
+contains.vector_stack <- function(stack, element) element %in% stack
+#+END_SRC
+
+*** The Usefulness of Polymorphism 
+
+Very eye opening section, worth looking into ;) 
+
+*** Polymorphism and Algorithmic Programming 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# implementation of mergesort on lists 
+merge_lists <- function(x, y) {
+    if (length(x) == 0) return(y)
+    if (length(y) == 0) return(x)
+
+    if (x[[1]] < y[[1]]) {
+        c(x[1], merge_lists(x[-1], y))
+    } else {
+        c(y[1], merge_lists(x, y[-1]))
+    }
+}
+
+sort_list <- function(x) {
+    if (length(x <= 1)) return(x)
+    start <- 1; end <- length(x); middle <- end %/% 2
+
+    merge_lists(sort_list(x[start:middle],
+                          x[(middle + 1):end]))
+}
+#+END_SRC
+
+This works, but is quadratic in run time since it copies lists when it subscripts like x[-1], y[-1]. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+merge_lists <- function(x, y) {
+    if (length(x) == 0) return(y)
+    if (length(y) == 0) return(x)
+    i <- j <- k <- 1
+    result <- vector("list", length = n)
+
+    while (i <= length(x) && j <= length(y)) {
+        if (x[[i]] < y[[j]]) {
+            result[[k]] <- y[[j]]
+            j <- j + 1
+        }
+        k <- k + 1
+    }
+
+    if (i > length(x)) {
+        result[k:n] <- y[j:length(y)]
+    } else {
+        result[k:n] <- x[i:length(x)]
+    }
+    result
+}
+#+END_SRC
+
+With this implementation, we can sort lists of elements where "<" can be used to determine if one element is less than another. This doesn't necessarily work on our own classes. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+make_tuple <- function(x, y) {
+    result <- c(x, y)
+    class(result) <- "tuple"
+    result 
+}
+
+x <- list(make_tuple(1, 2),
+          make_tuple(1, 1),
+          make_tuple(2, 0))
+
+sort_list(x)
+#+END_SRC
+
+There are several ways we could fix this. We could define a generic function for comparison (call it "less") and then use that in the merge function 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+less <- function(x, y) UseMethod("less")
+less.numeric <- function(x, y) x < y
+less.typle <- function(x, y) x[1] < y[1] || x[2] < y[2]
+
+merge_lists <- function(x, y) {
+    if (length(x) == 0) return(y)
+    if (length(y) == 0) return(x)
+    i <- j <- k <- 1
+    result <- vector("list", length = n)
+
+    while (i <= length(x) && j <= length(y)) {
+        if (less(x[[i]], y[[j]])) {
+            result[[k]] <- y[[j]]
+            j <- j + 1
+        }
+        k <- k + 1
+    }
+
+    if (i > length(x)) {
+        result[k:n] <- y[j:length(y)]
+    } else {
+        result[k:n] <- x[i:length(x)]
+    }
+    result
+}
+
+sort_list(x)
+#+END_SRC
+
+The problem is that we would need to define concrete implementations of less for all types we wish to sort. Alternatively, we can tell R how to handle "<" for our own types, and we will see how in a later chapter. 
+
+A third option is to make less a parameter of our sorting function 
+
+*** More on UseMethod 
+
+The UseMethod function is what we use to define a generic function, and it takes care of finding the appropriate concrete implementation using the name lookup we saw earlier. 
+
+You can pass local variables along to concrete implementations if you assign them before you call UseMethod 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+foo <- function(object) UseMethod("foo")
+
+foo.numeric <- function(object) object
+
+foo(4)
+
+bar <- function(object) {
+    x <- 2
+    UseMethod("bar")
+}
+
+bar.numeric <- function(object) x + object
+
+bar(4)
+
+# UseMethod doesn't behave like a normal function
+baz <- function(object) UseMethod("baz") + 2 + stop("Wow!")
+baz.numeric <- function(object) object
+baz(4)
+#+END_SRC
+
+When UseMethod is invoked, the concrete function takes over completely, and the call to UseMethod never returns. Anything after it is not evaluated. 
+
+** Chapter 2 | Class Hierarchies
+
