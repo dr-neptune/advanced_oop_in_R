@@ -400,3 +400,7 @@ When UseMethod is invoked, the concrete function takes over completely, and the 
 
 ** Chapter 2 | Class Hierarchies
 
+Interfaces describe which generic functions objects of a given class must implement, and hierarchies chain together interfaces in "more-abstract / more-refined" relationships based on these functions.
+
+*** Interfaces and Implementations 
+
