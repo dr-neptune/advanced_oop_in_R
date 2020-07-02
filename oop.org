@@ -404,3 +404,143 @@ Interfaces describe which generic functions objects of a given class must implem
 
 *** Interfaces and Implementations 
 
+We can think of the interface of a class as the kinds of operations, or methods, which we can apply to objects of the class. 
+At the abstract level, we can describe the interface of a function by its formal arguments and its semantics. This can give us abstract functions. With that definition, we can say that an abstract data type is defined by a set of abstract functions. If we call a set of abstract functions an interface, then an abstract datatype is defined by an interface. 
+
+*** Abstract and Concrete Classes 
+
+A class encapsulates both what can be done with objects -- the interface that you have for them -- and how it is done -- how the interface is implemented. 
+
+*** Example : Graphical Objects 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# superclass methods 
+draw <- function(object) UseMethod("draw")
+bounding_box <- function(object) UseMethod("bounding_box")
+
+# draw methods
+draw.point <- function(object) {
+    points(object["x"], object["y"])
+}
+
+draw.rectangle <- function(object) {
+    rect(object["x1"],
+         object["y1"],
+         object["x2"],
+         object["y2"])
+}
+
+draw.circle <- function(object) {
+    plotrix::draw.circle(object["x"],
+                         object["y"],
+                         object["r"])
+}
+
+draw.composite <- function(object) {
+    invisible(Map(draw, object))
+}
+
+# constructors for concrete classes 
+point <- function(x, y) {
+    object <- c(x, y)
+    class(object) <- "point"
+    names(object) <- c("x", "y")
+    object
+}
+
+rectangle <- function(x1, y1, x2, y2) {
+    object <- c(x1, y1, x2, y2)
+    class(object) <- "rectangle"
+    names(object) <- c("x1", "y1", "x2", "y2")
+    object
+}
+
+circle <- function(x, y, r) {
+    object <- c(x, y, r)
+    class(object) <- "circle"
+    names(object) <- c("x", "y", "r")
+    object
+}
+
+composite <- function(...) {
+    object <- list(...)
+    class(object) <- "composite"
+    object
+}
+#+END_SRC
+
+Let's try it out 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+corners <- composite(point(2.5, 2.5),
+                     point(2.5, 7.5),
+                     point(7.5, 2.5),
+                     point(7.5, 7.5))
+
+plot(c(0, 10), c(0, 10), type = "n", axes = FALSE, xlab = "", ylab = "")
+draw(point(5, 5))
+draw(rectangle(2.5, 2.5, 7.5, 7.5))
+draw(circle(5, 5, 4))
+draw(corners)
+#+END_SRC
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# we can implement different methods like this
+bounding_box.point <- function(object) {
+    c(object["x"],
+      object["y"],
+      object["x"],
+      object["y"])
+}
+
+bounding_box.rectangle <- function(object) {
+    c(object["x1"],
+      object["y1"],
+      object["x2"],
+      object["y2"])
+}
+
+bounding_box.circle <- function(object) {
+    c(object["x"] - object["r"],
+      object["y"] - object["r"],
+      object["x"] + object["r"],
+      object["y"] + object["r"])
+}
+
+bounding_box.composite <- function(object) {
+    if (length(object) == 0) return(c(NA, NA, NA, NA))
+
+    bb <- bounding_box(object[[1]])
+    x1 <- bb[1]; y1 <- bb[2]; x2 <- bb[3]; y2 <- bb[4]
+
+    for (element in object) {
+        bb <- bounding_box(element)
+        x1 <- min(x1, bb[1])
+        y1 <- min(y1, bb[2])
+        x2 <- max(x2, bb[3])
+        y2 <- max(y2, bb[4])
+    }
+    
+    c(x1, y1, x2, y2)
+}
+#+END_SRC
+
+With that, we can collect all the graphical elements we wish to plot in a composite object and calculate the bounding box before we plot 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+all <- composite(point(5, 5),
+                 rectangle(2.5, 2.5, 7.5, 7.5),
+                 circle(5, 5, 4),
+                 composite(point(2.5, 2.5),
+                           point(2.5, 7.5),
+                           point(7.5, 2.5),
+                           point(7.5, 7.5)))
+
+bb <- bounding_box(all)
+
+plot(c(bb[1], bb[3]),
+     c(bb[2], bb[4]),
+     type = "n", axes = FALSE, xlab = "", ylab = "")
+draw(all)
+#+END_SRC
+
