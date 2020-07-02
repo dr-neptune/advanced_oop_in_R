@@ -544,3 +544,128 @@ plot(c(bb[1], bb[3]),
 draw(all)
 #+END_SRC
 
+*** Publication Example 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# publication interface
+publication <- function(name, authors, citations) {
+    structure(list(name = name,
+                   authors = authors,
+                   citations = citations),
+              class = "publication")
+}
+
+name <- function(pub) pub$name
+authors <- function(pub) pub$authors
+
+articles <- function(name, authors, citations, journal, pages) {
+    structure(list(name = name,
+                   authors = authors,
+                   citations = citations,
+                   journal = journal,
+                   pages = pages),
+              class = c("article", "publication"))
+}
+
+journal <- function(pub) pub$journal
+pages <- function(pub) pub$pages
+
+book <- function(name, authors, citations, publisher, ISBN) {
+    structure(list(name = name,
+                   authors = authors,
+                   citations = citations,
+                   publisher = publisher,
+                   ISBN = ISBN),
+              class = c("book", "publication"))
+}
+
+publisher <- function(pub) pub$publisher
+ISBN <- function(pub) pub$ISBN
+
+# format publications for lists and so on. 
+# instead of changing older code, utilize generic functions for formatting citations and specialize it for subclasses
+format <- function(publ) UseMethod("format")
+
+format.article <- function(publ) {
+    paste(name(publ),
+          authors(publ),
+          journal(publ),
+          pages(publ),
+          sep = ", ")
+}
+
+format.book <- function(publ) {
+    paste(name(publ),
+          authors(publ),
+          publisher(publ),
+          ISBN(publ),
+          sep = ", ")
+}
+
+print.publication <- function(x, ...) print(format(x))
+#+END_SRC
+** Chapter 3 | Implementation Reuse 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+A <- function() {
+    structure(list(), class = "A")
+}
+
+B <- function() {
+    structure(list(), class = c("B", "A"))
+}
+
+C <- function() {
+    structure(list(), class = c("C", "B", "A"))
+}
+
+# create instances
+x <- A(); y <- B(); z <- C()
+list(x, y, z) %>% map(class)
+
+# create a generic function with only a default implementation
+f <- function(x) UseMethod("f")
+f.default <- function(x) print("f.default")
+
+list(x, y, z) %>% map(f)
+
+g <- function(x) UseMethod("g")
+g.default <- function(x) print("g.default")
+g.A <- function(x) print("g.A")
+
+list(x, y, z) %>% map(g)
+
+h <- function(x) UseMethod("h")
+h.default <- function(x) print("h.default")
+h.A <- function(x) print("h.A")
+h.B <- function(x) print("h.B")
+
+list(x, y, z) %>% map(h)
+#+END_SRC
+
+*** Getting the Hierarchy Correct in the Constructors 
+
+Instead of explicitly naming the superclass, we could manually call the constructor of the superclass, obtain an object, and then prepend the new class name to its class list
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+A <- function() {
+    structure(list(),
+              class = "A")
+}
+
+B <- function() {
+    this <- A()
+    class(this) <- c("B", class(this))
+    this
+}
+
+C <- function() {
+    this <- B()
+    class(this) <- c("C", class(this))
+    this
+}
+#+END_SRC
+
+*** NextMethod 
+
+When we specialize generic functions, we do not always need to implement everything from scratch; sometimes we can reuse implementations from more abstract classes and tweak the results a little. 
