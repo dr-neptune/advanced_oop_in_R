@@ -735,4 +735,225 @@ list(x, y, z) %>% map(j)
 
 ** Chapter 4 | Statistical Models 
 
+*** Bayesian Linear Regression 
+
+We will assume that the prior distribution of w is a normal distribution with mean zero and independent components, so a diagonal covariance matrix. This means that, on average, we believe the line we are fitting to be flat and going through the plane origin, but how strongly we believe this depends on values in the covariance matrix. This we will parameterize with a hyperparameter, a, that is the precision (1 / a) of the weight components. The cov matrix will have 1/a on its diagonal and zeros off-diagonal. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+weight_distribution <- function(mu, S) {
+    structure(list(mu = mu,
+                   S = S),
+              class = "wdist")
+}
+
+prior_distribution <- function(a) {
+    mu = c(0, 0)
+    S = diag(1 / a, nrow = 2, ncol = 2)
+    weight_distribution(mu, S)
+}
+
+# sample from the distribution with multivariate normal
+sample_weights <- function(n, distribution) {
+    MASS::mvrnorm(n = n,
+                  mu = distribution$mu,
+                  Sigma = distribution$S)
+}
+
+# sample from lines from the prior and plot them. We strongly believe it is flat and going through the origin
+prior <- prior_distribution(1)
+(w <- sample_weights(5, prior))
+
+plot(c(-1, 1), c(-1, 1), type = "n", xlab = "", ylab = "")
+plot_lines <- function(w) {
+    for (i in 1:nrow(w)) {
+        abline(a = w[i, 1], b = w[i, 2])
+    }
+}
+plot_lines(w)
+#+END_SRC
+
+When we observe data in the form of matching X and Y values, we must update the w vector to reflect this, which means updating the distribution of the weights. 
+
+If mu0 is the prior mean, and S0 the prior covariance matrix, then the posterior mean and cov matrix are computed thus: 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+S <- solve(S0 + b * t(X) %*% X)
+mu <- S %*% (solve(S0) %*% mu0 + b * t(X) %*% y)
+#+END_SRC 
+
+In this case, b is the precision of the error terms and X captures the x values. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+fit_posterior <- function(x, y, b, prior) {
+    mu0 <- prior$mu
+    S0 <- prior$S
+
+    X <- matrix(c(rep(1, length(x)), x), ncol = 2)
+    S <- solve(S0 + b * t(X) %*% X)
+    mu <- S %*% (solve(S0) %*% mu0 + b * t(X) %*% y)
+
+    weight_distribution(mu = mu, S = S)
+}
+
+x <- rnorm(20)
+y <- 0.2 + 1.3 * x + rnorm(20)
+
+plot(x, y)
+posterior <- fit_posterior(x, y, 1, prior)
+w <- sample_weights(5, posterior)
+plot_lines(w)
+
+x <- rnorm(20000)
+y <- 0.2 + 1.3 * x + rnorm(20000)
+
+plot(x, y)
+posterior <- fit_posterior(x, y, 1, prior)
+w <- sample_weights(5, posterior)
+plot_lines(w)
+#+END_SRC
+
+*** Model Matrices 
+
+The X matrix we used when fitting the posterior is an example of a model matrix, or design matrix. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+x <- rnorm(5); y <- 1.2 + 2 * x + rnorm(5)
+
+model.matrix(y ~ x)
+
+d <- data.frame(x, y)
+model.matrix(y ~ x, data = d)
+
+# the formula decides how the model matrix is constructed. We can use y ~ x to remove the intercept
+model.matrix(y ~ x - 1, data = d)
+
+# or we could add terms
+model.matrix(y ~ x + I(x**2), data = d)
+#+END_SRC
+
+The model matrix doesn't include the response variable y, but we can use the related model.frame function
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+model.frame(y ~ x + I(x**2), data = d)
+
+# extract the response variable
+model.response(model.frame(y ~ x + I(x**2), data = d))
+#+END_SRC
+
+With that machinery in place, we can generalize our distributions and model fitting to work with the general formula 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# write a prior function
+prior_distribution <- function(formula, a, data) {
+    n <- ncol(model.matrix(formula, data = data))
+    mu <- rep(0, n)
+    S <- diag(1 / a, nrow = n, ncol = n)
+    weight_distribution(mu, S)
+}
+#+END_SRC
+
+The function for fitting the data changes less 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+fit_posterior <- function(formula, b, prior, data) {
+    mu0 <- prior$mu
+    S0 <- prior$S
+
+    X <- model.matrix(formula, data = data)
+    S <- solve(S0 + b * t(X) %*% X)
+    mu <- S %*% (solve(S0) %*% mu0 + b * t(X) %*% y)
+
+    weight_distribution(mu = mu, S = S)   
+}
+
+# now we can fit a line as before using a formula 
+d <- {
+    x <- rnorm(5)
+    y <- 1.2 + 2 * x + rnorm(5)
+    data.frame(x = x, y = y)
+}
+
+prior <- prior_distribution(y ~ x, 1, d)
+(posterior <- fit_posterior(y ~ x, 1, prior, d))
+
+# if we wished to fit a quadratic function, we can just provide a different formula
+prior <- prior_distribution(y ~ x + I(x**2), 1, d)
+(posterior <- fit_posterior(y ~ x + I(x**2), 1, prior, d))
+#+END_SRC
+
+*** Constructing Fitted Model Objects 
+
+We want to wrap fitted models in a class so we can write a constructor for them. For fitted models, it is traditional to include the formula, data and the function call together with the fitted model 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# constructor
+blm <- function(formula, b, data, prior = NULL, a = NULL) {
+    if (is.null(prior)) {
+        if (is.null(a)) stop("Without a prior, you must provide a.")
+        prior <- prior_distribution(formula, a, data)
+    } else {
+        if (inherits(prior, "blm")) {
+            prior <- prior$prior
+        }
+    }
+
+    if (!inherits(prior, "wdist")) stop("The provided prior does not have the expected type.")
+
+    posterior <- fit_posterior(formula, b, prior, data)
+
+    structure(list(formula = formula,
+                   data = model.frame(formula, data),
+                   dist = posterior,
+                   call = match.call()),
+              class = "blm")
+}
+
+# we can provide our out generic print function for blm 
+print.blm <- function(x, ...) {
+    print(x$call)
+}
+
+(model <- blm(y ~ x + I(x**2), a = 1, b = 1, data = d))
+#+END_SRC
+
+*** Coefficients and Confidence Intervals 
+
+Once we have a fitted model, we might want to get the fitted values. For the bayesian linear regression model, the fitted values are whole distributions, but we can take the mean values as point estimates and return those
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+coef.blm <- function(object, ...) {
+    t(object$dist$mu)
+}
+
+coef(model)
+
+# get confidence intervals
+confint.blm <- function(object, parm, level = 0.95, ...) {
+    if (missing(parm)) parm <- rownames(object$dist$mu)
+
+    means <- object$dist$mu[parm, ]
+    sds <- sqrt(diag(object$dist$S)[parm])
+
+    lower_q <- qnorm(p = (1 - level) / 2,
+                     mean = means,
+                     sd = sds)
+
+    upper_q <- qnorm(p = 1 - (1 - level) / 2,
+                     mean = means,
+                     sd = sds)
+
+    quantiles <- cbind(lower_q, upper_q)
+    quantile_names <- paste(100 * c((1 - level)/2, 1 - (1 - level) / 2),
+                            "%",
+                            sep = "")
+
+    colnames(quantiles) <- quantile_names
+    quantiles
+}
+
+confint(model)
+#+END_SRC
+
+*** Predicting Response Variables 
+
 
