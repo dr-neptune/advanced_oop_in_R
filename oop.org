@@ -669,3 +669,70 @@ C <- function() {
 *** NextMethod 
 
 When we specialize generic functions, we do not always need to implement everything from scratch; sometimes we can reuse implementations from more abstract classes and tweak the results a little. 
+
+The NextMethod function lets you call inherited functions in a way that resembles UseMethod, and that uses it class sequence. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+format.publication <- function(publ) {
+    paste(name(publ),
+          authors(publ),
+          sep = ", ")
+}
+
+format.article <- function(publ) {
+    paste(NextMethod(),
+          journal(publ),
+          pages(publ),
+          sep = ", ")
+}
+
+format.book <- function(publ) {
+    paste(NextMethod(),
+          publisher(publ),
+          ISBN(publ),
+          sep = ", ")
+}
+#+END_SRC
+
+When we cann NextMethod, R will search through the class sequence for a class that implements the generic function we are currently evaluating. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+f.A <- function(x) {
+    print("f.A")
+    NextMethod()
+}
+
+f.B <- function(x) {
+    print("f.B")
+    NextMethod()
+}
+
+f.C <- function(x) {
+    print("f.C")
+    NextMethod()
+}
+
+list(x, y, z) %>% map(f)
+#+END_SRC
+
+If we implement another function, where we only implement version for classes A and C but not for B. We will see the C objects evaluating the C version, then the A version since there is no B version. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+j <- function(x) UseMethod("j")
+j.default <- function(x) print("j.default")
+j.A <- function(x) {
+    print("j.A")
+    NextMethod()
+}
+
+j.C <- function(x) {
+    print("j.C")
+    NextMethod()
+}
+
+list(x, y, z) %>% map(j)
+#+END_SRC
+
+** Chapter 4 | Statistical Models 
+
+
