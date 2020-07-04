@@ -1079,4 +1079,210 @@ ggplot(cbind(data.frame(y = d$y), predictions),
 
 ** Chapter 5 | Operator Overloading 
 
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+modulus <- function(value, n) {
+    result <- value %% n
+    attr(result, "modulus") <- n
+    class(result) <- c("modulus", class(value))
+    result
+}
+
+# pretty printing results
+print.modulus <- function(x, ...) {
+    cat("Modulus", attr(x, "modulus"), "values:\n")
+    # remove attributes to get plain numeric printing 
+    x <- unclass(x)
+    attributes(x) <- NULL
+    NextMethod()
+}
+
+(x <- modulus(1:6, 3))
+#+END_SRC
+
+*** Defining Single Operators 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# define what addition means for this type
+`+.modulus` <- function(x, y) {
+    # check types of operands and that the two operands are compatible
+    nx <- attr(x, "modulus"); ny <- attr(y, "modulus")
+    if (!is.null(nx) && !is.null(ny) && nx != ny) stop("Incompatible Types")
+    n <- ifelse(!is.null(nx), nx, ny)
+    x <- unclass(x); y <- unclass(y)
+    modulus(x + y, n)
+}
+
+x + 1:6
+1:6 + x
+
+y <- modulus(rev(1:6), 3)
+x + y
+#+END_SRC
+
+*** Group Operators 
+
+Using generic functions, we can define all relevant operators for a user-defined type, but it is also possible to handle all operators in a single function, Ops. This function is called a "group generic method". This is like a default method.
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+Ops.modulus <- function(e1, e2) {
+    nx <- attr(e1, "modulus")
+    ny <- attr(e2, "modulus")
+    if (!is.null(nx) && !is.null(ny) && nx != ny) stop("Incompatible Types")
+    n <- ifelse(!is.null(nx), nx, ny)
+    result <- unclass(NextMethod()) %% n
+    modulus(result, n)
+}
+#+END_SRC
+
+With this function, we get all the binary operators in one go
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+y <- modulus(rev(1:6), 3)
+
+x - y
+x * y
+x == y
+x == x
+x != y
+x != x
+- x
+#+END_SRC
+
+*** Units Example 
+
+In this section we define a class for associating physical units with values. This will allow us to check that units we manipulate are compatible. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+symbolic_unit <- function(numerator, denominator = "") {
+    rm_empty <- function(exp) {
+        non_empty <- function(x) x != ""
+        sort(Filter(non_empty, exp))
+    }
+    numerator <- rm_empty(numerator)
+    denominator <- rm_empty(denominator)
+    structure(list(numerator = numerator,
+                   denominator = denominator),
+              class = "symbolic_unit")
+}
+
+# pretty printing
+as.character.symbolic_unit <- function(x, ...) {
+    format_terms <- function(terms, op) {
+        if (length(terms) == 0) return("1")
+        paste0(terms, collapse = op)
+    }
+    numerator <- format_terms(x$numerator, "*")
+    denominator <- format_terms(x$denominator, "/")
+    paste(numerator, "/", denominator)
+}
+
+print.symbolic_unit <- function(x, ...) {
+    cat(as.character(x, ...), "\n")
+}
+
+(x <- symbolic_unit("m"))
+(y <- symbolic_unit("m", "s"))
+#+END_SRC
+
+Comparing two symbolic units involves checking that the numerator and denominator are equal 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+`==.symbolic_unit` <- function(x, y) {
+    if (!(inherits(x, "symbolic_unit") &&
+          inherits(y, "symbolic_unit")))
+        stop("Incompatible Types")
+    return(identical(x$numerator, y$numerator) &&
+           identical(x$denominator, y$denominator))
+}
+
+`!=.symbolic_unit` <- function(x, y) !(x == y)
+
+x == y
+x != y
+
+`*.symbolic_unit` <- function(x, y) {
+    symbolic_unit(c(x$numerator, y$numerator),
+                  c(x$denominator, y$denominator))
+}
+
+`/.symbolic_unit` <- function(x, y) {
+    symbolic_unit(c(x$numerator, y$denominator),
+                  c(x$denominator, y$numerator))
+}
+
+x * y
+x / y 
+#+END_SRC
+
+We now have everything in place to represent units. We just need to define the class for associating units with quantities. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+units <- function(value, numerator, denominator = "") {
+    attr(value, "units") <- symbolic_unit(numerator, denominator)
+    class(value) <- c("units", class(value))
+    value
+}
+
+# pretty printing
+print.units <- function(x, ...) {
+    cat("Units: ", as.character(attr(x, "units")), "\n")
+    # remove attributes to get plain numeric printing
+    x <- unclass(x)
+    attributes(x) <- NULL
+    NextMethod()
+}
+
+(x <- units(1:6, "m", "s^2"))
+#+END_SRC
+
+We need to distinguish between operators where we require that the units match and those where we need to construct new units. The former are addition, subtraction, and comparisons; the latter and multiplication and division. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+Ops.units <- function(e1, e2) {
+    su1 <- attr(e1, "units")
+    su2 <- if (!missing(e2)) attr(e2, "units") else NULL
+
+    if (.Generic %in% c("+", "-", "==", "!=", "<", "<=", ">=", ">")) {
+        if (!is.null(su1) && !is.null(su2) && su1 != su2) stop("Incompatible Units")
+        su <- ifelse(!is.null(su1), su1, su2)
+        return(NextMethod())
+    }
+
+    if (.Generic == "*" || .Generic == "/") {
+        if (is.null(su1)) su1 <- symbolic_unit("")
+        if (is.null(su2)) su2 <- symbolic_unit("")
+        su <- switch(.Generic,
+                     "*" = su1 * su2,
+                     "/" = su1 / su2)
+        result <- NextMethod()
+        attr(result, "units") <- su
+        return(result)
+    }
+
+    # for the remaining ops we don't have a good way of treating the units so we strip them to numerics
+    e1 <- unclass(e1); e2 <- unclass(e2)
+    attributes(e1) <- attributes(e2) <- NULL
+    NextMethod()
+}
+
+# now we can combine units with scalars
+2 * x 
+x + 2
+x - 2
+
+# we also get compatibility warnings
+(y <- units(1:6, "m", "s"))
+x + y
+
+(z <- units(1:6, "m", "s^2"))
+x + z
+x - z
+
+# mult and division are always permissible 
+2 * x
+x * y
+x / y 
+#+END_SRC
+
+** Chapter 6 | S4 Classes 
 
