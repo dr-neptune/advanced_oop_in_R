@@ -1286,3 +1286,81 @@ x / y
 
 ** Chapter 6 | S4 Classes 
 
+The S4 system offers a more structured object oriented system. Here classes and class hierarchies are explicitly created. 
+
+*** Defining S4 Classes 
+
+To create a new class, we use the function setClass from the methods package. This takes arguments that specify which attributes the objects of the class should hold, what default values the attributes should have, how the class fits into a class hierarchy, and many other properties of the created class. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+library(methods)
+
+# create an abstract stack class 
+Stack <- setClass("Stack")
+
+# create concrete class 
+VectorStack <- setClass("VectorStack",
+                        # list of attributes that objects of the class should have
+                        slots = c(elements = "vector"),
+                        # specify which superclasses the new class should have 
+                        contains = "Stack")
+
+# constructor
+(vs <- VectorStack(elements = 1:4))
+
+# access elements
+vs@elements
+
+# once a class is built with setClass you can create objects just using the name of the class
+new("VectorStack", elements = 1:4)
+#+END_SRC
+
+*** Generic Functions 
+
+In S4 we define generic functions explicitly using the setGeneric function. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# define the interface of the stack abstract data structure
+setGeneric("top", def = function(stack) standardGeneric("top"))
+setGeneric("pop", def = function(stack) standardGeneric("pop"))
+setGeneric("push", def = function(stack, element) standardGeneric("push"))
+setGeneric("is_empty", def = function(stack) standardGeneric("is_empty"))
+#+END_SRC
+
+To provide implementations of generic functions, we use setMethod. When the generic function is called, the concrete implementation is chosen based on the type of the arguments in the function. This is typically called dynamic dispatch. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+setMethod("top", signature = "VectorStack",
+          definition = function(stack) stack@elements[1])
+
+setMethod("pop", signature = "VectorStack",
+          definition = function(stack) stack@elements[-1])
+
+setMethod("push", signature = "VectorStack",
+          definition = function(stack, element) {
+              VectorStack(elements = c(element, stack@elements))})
+
+setMethod("is_empty", signature = "VectorStack",
+          definition = function(stack) length(stack@elements) == 0)
+#+END_SRC
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# try it out 
+(VectorStack() %>%
+    push(1) %>%
+    push(2) %>%
+    push(3) -> stack)
+
+while (!is_empty(stack)) stack <- pop(stack)
+#+END_SRC
+
+*** Slot Prototypes 
+
+When you create an object without values for the slots, you get default values. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+NaturalNumber <- setClass("NaturalNumber",
+                          slots = c(n = "integer"))
+
+(n <- NaturalNumber())
+#+END_SRC
