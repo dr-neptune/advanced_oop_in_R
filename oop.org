@@ -1635,4 +1635,315 @@ R6 is unlike the other OOP systems available in R. Data is usually immutable in 
 
 *** Defining Classes 
 
+In R6, the name is mainly used to set the class attribute so the objects can interact with s3 polymorphism. It is the return value of R6Class we use to create objects.
 
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+library(R6)
+
+VectorStack <- R6Class("VectorStack",
+                       private = list(elements = NULL),
+                       public = list(
+                           top = function() private$elements[1],
+                           pop = function() {
+                               private$elements <- private$elements[-1]
+                               invisible(self)
+                           },
+                           push = function(e) {
+                               private$elements <- c(e, private$elements)
+                               invisible(self)
+                           },
+                           is_empty = function() length(private$elements == 0)))
+#+END_SRC
+
+Besides class name, we also have private and public. These are used to define attributes of the class, either values stored in objects or methods we can call on the objects. The difference is that attributes in the public list can be accessed anywhere while attributes in the private list can only be accessed in methods you define for the class. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+(stack <- VectorStack$new())
+
+# we can modify the print method for our vectorstack 
+VectorStack <- R6Class("VectorStack",
+                       private = list(elements = NULL),
+                       public = list(
+                           top = function() private$elements[1],
+                           pop = function() {
+                               private$elements <- private$elements[-1]
+                               invisible(self)
+                           },
+                           push = function(e) {
+                               private$elements <- c(e, private$elements)
+                               invisible(self)
+                           },
+                           is_empty = function() length(private$elements == 0),
+                           print = function() {
+                               cat("Stack Elements:\n")
+                               print(private$elements)
+                           }))
+
+stack
+(stack <- VectorStack$new())
+
+# we can access the public attributes of the stack object 
+stack$push(1)$push(2)$push(3)
+stack
+
+while(!stack$is_empty()) stack$pop()
+stack
+#+END_SRC
+
+*** Object Initialization
+
+If we want to set attributes of objects when constructing them, we need to do a little more work than in S4. To be able to initialize objects with default values, we need to explicitly write a public function called initialize. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+VectorStack <- R6Class("VectorStack",
+                       private = list(elements = NULL),
+                       public = list(
+                           initialize = function(elements = NULL) {
+                               private$elements <- elements
+                           },
+                           top = function() private$elements[1],
+                           pop = function() {
+                               private$elements <- private$elements[-1]
+                               invisible(self)
+                           },
+                           push = function(e) {
+                               private$elements <- c(e, private$elements)
+                               invisible(self)
+                           },
+                           is_empty = function() length(private$elements == 0),
+                           print = function() {
+                               cat("Stack Elements:\n")
+                               print(private$elements)
+                           }))
+
+(stack <- VectorStack$new(elements = 1:4))
+#+END_SRC
+
+*** Private and Public Attributes 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# example to see the difference between public and private attributes
+A <- R6Class("A", public = list(x = 5), private = list(y = 13))
+
+(a <- A$new())
+
+a$x
+a$x <- 8
+a$x
+
+a$y
+a$y <- 12
+a$y
+
+# you cannot create new attributes to R6 objects just by assignment like in s3 
+a$z <- "foo"
+#+END_SRC
+
+In general, it is considered good practice to keep data private and methods that are part of a class interface public. 
+
+*** Active Bindings 
+
+There is a way of getting the syntax of accessing data attributes without actually doing so. If you have code that already uses a public attribute and you want to change that into a function to hide or modify implementation details you can use this. You can also use it if you just like the syntax for data better than method calls. 
+
+This is achieved through the active argument to R6Class. Functions in the active list should only take one argument, value. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# not quite working 
+VectorStack <- R6Class("VectorStack",
+                       private = list(elements_ = NULL),
+                       public = list(
+                           initialize = function(elements = NULL) {
+                               private$elements <- elements
+                           },
+                           top = function() private$elements[1],
+                           pop = function() {
+                               private$elements <- private$elements[-1]
+                               invisible(self)
+                           },
+                           push = function(e) {
+                               private$elements <- c(e, private$elements)
+                               invisible(self)
+                           },
+                           is_empty = function() length(private$elements == 0),
+                           print = function() {
+                               cat("Stack Elements:\n")
+                               print(private$elements)
+                           }),
+                       active = list(
+                           elements = function(value) {
+                               if (!missing(value)) stop("Elements are read-only")
+                               private$elements_
+                           }
+                       ))
+
+(stack <- VectorStack$new(elements = 1:4))
+stack$elements
+#+END_SRC
+
+*** Inheritance 
+
+Overall, writing methods and class hierarchies is done with much simpler code in R6 than in both S3 and S4. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+A <- R6Class("A",
+             public = list(
+                 f = function() print("A::f"),
+                 g = function() print("A::g"),
+                 h = function() print("A::h")))
+
+B <- R6Class("B",
+             inherit = A,
+             public = list(
+                 g = function() print("B::g"),
+                 h = function() print("B::h")))
+
+C <- R6Class("C",
+             inherit = B,
+             public = list(
+                 h = function() print("C::h"))) 
+
+x <- A$new(); y <- B$new(); z <- C$new()
+
+list(x, y, z) %>% walk(., ~ .x$f())
+list(x, y, z) %>% walk(., ~ .x$g())
+list(x, y, z) %>% walk(., ~ .x$h())
+#+END_SRC
+
+*** References to Objects and Object Sharing 
+
+An important difference of R6 is that objects have a state and can be modified. 
+
+The first thing we must know is that values set in the definition of private and public lists are shared between objects of a class. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+A <- R6Class("A", public = list(x = 1:5))
+B <- R6Class("B", public = list(x = 1:5, a = A$new()))
+
+x <- B$new(); y <- B$new()
+x$x; y$x
+
+# if we modify the vector in x we see that the vector in y doesn't change 
+(x$x <- 1:3)
+y$x
+
+# if we mod the vector in the nested A object, we see state is shared
+x$a$x
+y$a$x
+
+x$a$x <- 1:3
+x$a$x
+y$a$x
+
+# even creating a new object from the class will give us an object that contains the modified value
+z <- B$new()
+z$a$x
+#+END_SRC
+
+If you want each object of a class to contain distinct objects of an R6 class, then you can create objects in the initialize function instead of in the public or private lists. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+B <- R6Class("B",
+             public = list(x = 1:5,
+                           a = NULL,
+                           initialize = function() self$a <- A$new()))
+
+x <- B$new(); y <- B$new()
+
+# now we can modify one without modifying the other 
+x$a$x
+x$a$x <- 1:3
+x$a$x
+y$a$x
+#+END_SRC
+
+Since assigning from one variable to another just creates another reference to the same object, we need another way of creating an effective copy. This is done with the clone method that all R6 objects automatically implement. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+z <- x$clone()
+z$x
+z$x <- 1:2
+x$x
+#+END_SRC
+
+The default cloning is shallow. It makes a copy of the object, but if the object contains a reference to an R6 class, then the clone will contain a reference to the same object. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+x$a$x
+z$a$x <- 1:5
+x$a$x
+
+# deep = TRUE gives us a deep copy with a transitive closure of cloned references with distinct obj
+y <- x$clone(deep = TRUE)
+x$a$x
+y$a$x <- NULL
+x$a$x
+#+END_SRC
+
+*** Interaction with S3 and Operator Overloading 
+
+We don't have a mechanism for defining new operators for R6 objects, but we can use the S3 system for this. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+modulus <- R6Class("modulus",
+                   private = list(
+                       value_ = c(),
+                       n_ = c()),
+                   public = list(
+                       initialize = function(value, n) {
+                           private$value_ <- value
+                           private$n_ <- n
+                       },
+                       print = function() {
+                           cat("Modulus", private$n_, "values:\n")
+                           print(private$value_)
+                       }
+                   ),
+                   active = list(
+                       value = function(value) {
+                           if (missing(value)) private$value_
+                           else private$value_ <- value %% private$n_
+                       },
+                       n = function(value) {
+                           if (!missing(value)) stop("Cannot change n")
+                           private$n_
+                       }
+                   ))
+
+(x <- modulus$new(value = 1:6, n = 3))
+
+# check the class attribute
+class(x)
+
+# define arithmetic operations on the class using S3 
+# the implementation is diff since the accessors are different
+Ops.modulus <- function(e1, e2) {
+    nx <- ny <- NULL
+    if (inherits(e1, "modulus")) nx <- e1$n
+    if (inherits(e2, "modulus")) ny <- e2$n
+    if (!is.null(nx) && !is.null(ny) && nx != ny) stop("incompatible types")
+    n <- ifelse(!is.null(nx), nx, ny)
+
+    v1 <- e1; v2 <- e2
+    if (inherits(e1, "modulus")) v1 <- e1$value
+    if (inherits(e2, "modulus")) v2 <- e2$value
+
+    e1 <- v1; e2 <- v2
+    result <- NextMethod() %% n
+    modulus$new(result, n)
+}
+
+x + 1:6
+1:6 + x
+2 * x
+#+END_SRC
+
+If you make subclasses of an R6 class like modulus, you will get a class attribute that reflects this, so the s3 dispatch mechanism will also work for subclasses in the R6 system. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+modulus2 <- R6Class("modulus2", inherit = modulus)
+
+y <- modulus2$new(value = 1:2, n = 3)
+class(y)
+
+x + y 
+#+END_SRC
