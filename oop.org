@@ -1514,4 +1514,125 @@ setMethod("initialize",
 
 *** Dispatching on Type-Signatures 
 
+The dispatch mechanism for S4 methods is more general than S3 and it is possible to dispatch based on the type of all of a given function's arguments. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# have one version with numeric, and another with logical outputs
+setGeneric("f", def = function(x, y) standardGeneric("f"))
+setMethod("f", signature = c("numeric", "numeric"),
+          definition = function(x, y) x + y)
+setMethod("f", signature = c("logical", "logical"),
+          definition = function(x, y) x & y)
+
+# when calling f, the appropriate function is selected based on the type of the arguments
+f(2, 3)
+f(TRUE, FALSE)
+
+# type matching goes from most specific to most abstract
+setMethod("f", signature = c("integer", "complex"),
+          definition = function(x, y) x - y)
+
+# we can specialize it to match integers and numeric instead
+setMethod("f", signature = c("integer", "numeric"),
+          definition = function(x, y) 2 * x + y)
+
+f(as.integer(2), 2)
+
+# if we just give a single string, it just dispatches on the type of the first argument 
+setMethod("f", signature = "character",
+          definition = function(x, y) x)
+
+f("foo", "bar")
+
+# if you want to match any type, you can use the type "ANY"
+setMethod("f", signature = "ANY",
+          definition = function(x, y) "any")
+
+f(list(), NULL)
+
+# you can even match for missing arguments
+setMethod("f", signature = c("ANY", "missing"),
+          definition = function(x, y) "missing")
+
+f(list(), NULL)
+#+END_SRC
+
+*** Operator Overloading 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+modulus <- setClass("modulus",
+                    slots = c(value = "numeric",
+                              n = "numeric"))
+
+setMethod("show", signature = "modulus",
+          definition = function(object) {
+              cat("Modulus", object@n, "values:\n")
+              print(object@value)
+          })
+
+(x <- modulus(value = 1:6, n = 3))
+
+setMethod("+", signature = c("modulus", "modulus"),
+          definition = function(e1, e2) {
+              if (e1@n != e2@n) stop("Incompatible Modulus")
+              modulus(value = e1@value + e2@value,
+                      n = e1@n)
+          })
+
+setMethod("+", signature = c("modulus", "numeric"),
+          definition = function(e1, e2) {
+              modulus(value = e1@value + e2,
+                      n = e1@n)
+          })
+
+setMethod("+", signature = c("numeric", "modulus"),
+          definition = function(e1, e2) {
+              modulus(value = e1 + e2@value,
+                      n = e2@n)
+          })
+
+# check combinations
+x + 1:6
+1:6 + x
+
+# check two modulus objects
+y <- modulus(value = 1:6, n = 2)
+x + y
+y <- modulus(value = 1:6, n = 3)
+x + y
+
+# we also have group operators 
+setMethod("Arith",
+          signature = c("modulus", "modulus"),
+          definition = function(e1, e2) {
+              if (e1@n != e2@n) stop("Incompatible Modulus")
+              modulus(value = callGeneric(e1@value, e2@value),
+                      n = e1@n)
+          })
+
+setMethod("Arith",
+          signature = c("modulus", "numeric"),
+          definition = function(e1, e2) {
+              modulus(value = callGeneric(e1@value, e2),
+                      n = e1@n)
+          })
+
+setMethod("Arith",
+          signature = c("numeric", "modulus"),
+          definition = function(e1, e2) {
+              modulus(value = callGeneric(e1, e2@value),
+                      n = e2@n)
+          })
+
+
+x * y
+2 * x
+#+END_SRC
+
+** Chapter 7 | R6 Classes 
+
+R6 is unlike the other OOP systems available in R. Data is usually immutable in R, but R6 allows for mutable data. 
+
+*** Defining Classes 
+
 
